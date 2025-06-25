@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Паттерн Map Reduce ===")
+	fmt.Println("=== Паттерн Map Reduce исполненное в конкурентном режиме ===")
 
 	data := []string{
 		"hello world",
@@ -17,6 +17,16 @@ func main() {
 		"world of concurrency",
 		"go programming",
 	}
+	fmt.Printf("Введённые данные: %v\n", data)
+	mapped := generateKeyValueChan(data)
+	grouped := createMapFromChan(mapped)
+	result := sumMapValue(grouped)
+	fmt.Println("\nПодсчёт количества слов:")
+	for word, count := range result {
+		fmt.Printf(" %s: %d\n", word, count)
+	}
+
+	fmt.Println("\nВыполнение программы завершено")
 
 }
 
@@ -27,7 +37,7 @@ type KeyValue struct {
 }
 
 // Разделяет текст на пары ключ-значение и размещает пары KeyValue в каналах
-func mapPhrase(data []string) <-chan KeyValue {
+func generateKeyValueChan(data []string) <-chan KeyValue {
 	out := make(chan KeyValue, len(data)*10) // Каналы
 
 	var wg sync.WaitGroup       //Инициализация группы ожидания
@@ -54,7 +64,7 @@ func mapPhrase(data []string) <-chan KeyValue {
 }
 
 // Перетасовка пар ключ-значение
-func shufflePhase(mapped <-chan KeyValue) map[string][]int {
+func createMapFromChan(mapped <-chan KeyValue) map[string][]int {
 	grouped := make(map[string][]int) //Иницициализация типа Map c ключом string и значениями массива []int
 	var mu sync.Mutex                 //Мьютекс для блокировки
 
@@ -72,4 +82,31 @@ func shufflePhase(mapped <-chan KeyValue) map[string][]int {
 
 	wg.Wait()      //Ожидание когда группа ожидания достигнет 0
 	return grouped //Возврат новой группировки
+}
+
+// Просуммировать значение Map
+func sumMapValue(grouped map[string][]int) map[string]int {
+	result := make(map[string]int) //Инициализировать Map
+	var mu sync.Mutex              //Мьютекс для блокировки общего кода горутин
+
+	var wg sync.WaitGroup               // Инициализация группы ожидания
+	for word, counts := range grouped { //Цикл по значениям Map
+		wg.Add(1)                            // Увеличиваем счётчик горутин
+		go func(word string, counts []int) { //Запускаем горутину
+			defer wg.Done()                                              //Умменьшение счётчика горутин когда горутина выполнилась
+			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond) //Задержка времени выполнения
+
+			total := 0                     //Начальная сумма
+			for _, count := range counts { //Суммирование значений в массиве
+				total += count
+			}
+			mu.Lock()            //Блокировка общего кода для всех горутин
+			result[word] = total //Присваивание значения общему результату
+			mu.Unlock()          //Разблокировка мьютекса
+			fmt.Printf("Просуммировано: %s -> %d\n", word, total)
+		}(word, counts)
+	}
+
+	wg.Wait() //Ожидание когда счётчик горутин опустится до 0
+	return result
 }
